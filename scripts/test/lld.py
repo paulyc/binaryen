@@ -20,6 +20,9 @@ from shared import (
     WASM_EMSCRIPTEN_FINALIZE, fail_if_not_identical_to_file
 )
 
+args = ['--global-base=568', '--initial-stack-pointer=16384']
+shared_args = ['--shared']
+
 
 def test_wasm_emscripten_finalize():
   print '\n[ checking wasm-emscripten-finalize testcases... ]\n'
@@ -36,8 +39,11 @@ def test_wasm_emscripten_finalize():
       if ext != '.out' and not os.path.exists(expected_file):
         continue
 
-      cmd = (WASM_EMSCRIPTEN_FINALIZE +
-             [wast_path, '-S', '--global-base=568', '--initial-stack-pointer=16384'] + ext_args)
+      cmd = WASM_EMSCRIPTEN_FINALIZE + [wast_path, '-S'] + ext_args
+      if 'shared' in os.path.basename(wast_path):
+        cmd += shared_args
+      else:
+        cmd += args
       actual = run_command(cmd)
 
       if not os.path.exists(expected_file):
@@ -65,8 +71,11 @@ def update_lld_tests():
       out_path = wast_path + ext
       if ext != '.out' and not os.path.exists(out_path):
         continue
-      cmd = (WASM_EMSCRIPTEN_FINALIZE +
-             [wast_path, '-S', '--global-base=568', '--initial-stack-pointer=16384'] + ext_args)
+      cmd = WASM_EMSCRIPTEN_FINALIZE + [wast_path, '-S'] + ext_args
+      if 'shared' in os.path.basename(wast_path):
+        cmd += shared_args
+      else:
+        cmd += args
       actual = run_command(cmd)
       with open(out_path, 'w') as o:
         o.write(actual)

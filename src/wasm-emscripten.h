@@ -37,6 +37,7 @@ public:
   void generateRuntimeFunctions();
   Function* generateMemoryGrowthFunction();
   void generateStackInitialization(Address addr);
+  void generatePostInstantiateFunction();
 
   // Create thunks for use with emscripten Runtime.dynCall. Creates one for each
   // signature in the indirect function table.
