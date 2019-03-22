@@ -20,6 +20,7 @@ from shared import (
     WASM_EMSCRIPTEN_FINALIZE, fail_if_not_identical_to_file
 )
 
+
 def args_for_finalize(filename):
    if 'shared' in filename:
      return ['--shared']
