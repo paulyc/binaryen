@@ -186,8 +186,8 @@ int main(int argc, const char *argv[]) {
     generator.generateMemoryGrowthFunction();
     generator.generateStackInitialization(initialStackPointer);
     // For side modules this gets called via the __post_instantiate function
-    if (wasm.getExportOrNull("__wasm_call_ctors")) {
-      initializerFunctions.push_back("__wasm_call_ctors");
+    if (wasm.getExportOrNull(WASM_CALL_CTORS)) {
+      initializerFunctions.push_back(WASM_CALL_CTORS);
     }
   }
 

@@ -38,8 +38,7 @@ static Name STACK_SAVE("stackSave"),
             STACK_ALLOC("stackAlloc"),
             STACK_INIT("stack$init"),
             POST_INSTANTIATE("__post_instantiate"),
-            ASSIGN_GOT_ENTIRES("__assign_got_enties"),
-            WASM_CALL_CTORS("__wasm_call_ctors");
+            ASSIGN_GOT_ENTIRES("__assign_got_enties");
 
 void addExportedFunction(Module& wasm, Function* function) {
   wasm.addFunction(function);
@@ -56,8 +55,9 @@ Global* EmscriptenGlueGenerator::getStackPointerGlobal() {
   // linker could export it by name?
   for (auto& g : wasm.globals) {
     if (g->imported()) {
-      if (g->base == "__stack_pointer")
+      if (g->base == "__stack_pointer") {
         return g.get();
+      }
     } else {
       return g.get();
     }
