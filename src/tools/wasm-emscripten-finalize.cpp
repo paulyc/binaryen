@@ -80,7 +80,7 @@ int main(int argc, const char *argv[]) {
            [&initialStackPointer](Options*, const std::string&argument ) {
              initialStackPointer = std::stoull(argument);
            })
-      .add("--shared", "", "Input and output as an emscripten shared library (SIDE_MODULE)",
+      .add("--shared", "", "Input is an emscripten shared library (SIDE_MODULE)",
            Options::Arguments::Zero,
            [&isSharedLibrary](Options *o, const std::string& argument) {
              isSharedLibrary = true;

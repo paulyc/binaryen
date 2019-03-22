@@ -188,14 +188,16 @@ void EmscriptenGlueGenerator::generatePostInstantiateFunction() {
   std::vector<Global*> got_entries_func;
   std::vector<Global*> got_entries_mem;
   for (auto& g : wasm.globals) {
-    if (!g->imported())
+    if (!g->imported()) {
       continue;
-    if (g->module == "GOT.func")
+    }
+    if (g->module == "GOT.func") {
       got_entries_func.push_back(g.get());
-    else if (g->module == "GOT.mem")
+    } else if (g->module == "GOT.mem") {
       got_entries_mem.push_back(g.get());
-    else
+    } else {
       continue;
+    }
     // Make this an internal, non-imported, global.
     g->module.clear();
     g->init = Builder(wasm).makeConst(Literal(0));
