@@ -29,8 +29,8 @@
 #include "wasm-traversal.h"
 #include "asmjs/shared-constants.h"
 #include "asm_v_wasm.h"
-#include "wasm-builder.h"
 #include "parsing.h"
+#include "wasm-builder.h"
 #include "wasm-validator.h"
 #include "ir/import-utils.h"
 
@@ -96,7 +96,7 @@ struct LEB {
     return offset;
   }
 
-  void read(std::function<MiniT()> get) {
+  LEB<T, MiniT>& read(std::function<MiniT()> get) {
     value = 0;
     T shift = 0;
     MiniT byte;
@@ -134,6 +134,7 @@ struct LEB {
         }
       }
     }
+    return *this;
   }
 };
 
@@ -324,6 +325,11 @@ enum Section {
   Data = 11
 };
 
+enum SegmentFlag {
+  IsPassive = 0x01,
+  HasMemIndex = 0x02,
+};
+
 enum EncodedType {
   // value_type
   i32 = -0x1, // 0x7f
@@ -347,10 +353,19 @@ extern const char* Linking;
 extern const char* Producers;
 extern const char* TargetFeatures;
 
+extern const char* AtomicsFeature;
+extern const char* BulkMemoryFeature;
+extern const char* ExceptionHandlingFeature;
+extern const char* TruncSatFeature;
+extern const char* SignExtFeature;
+extern const char* SIMD128Feature;
+
 enum Subsection {
   NameFunction = 1,
   NameLocal = 2,
 };
+
+
 }
 
 enum ASTNodes {
@@ -557,7 +572,7 @@ enum ASTNodes {
 };
 
 enum AtomicOpcodes {
-  AtomicWake = 0x00,
+  AtomicNotify = 0x00,
   I32AtomicWait = 0x01,
   I64AtomicWait = 0x02,
 
@@ -962,7 +977,8 @@ public:
 
   void read();
   void readUserSection(size_t payloadLen);
-  bool more() { return pos < input.size();}
+
+  bool more() { return pos < input.size(); }
 
   uint8_t getInt8();
   uint16_t getInt16();
@@ -979,7 +995,6 @@ public:
   int64_t getS64LEB();
   Type getType();
   Type getConcreteType();
-  Name getString();
   Name getInlineString();
   void verifyInt8(int8_t x);
   void verifyInt16(int16_t x);
@@ -1108,7 +1123,7 @@ public:
   bool maybeVisitAtomicRMW(Expression*& out, uint8_t code);
   bool maybeVisitAtomicCmpxchg(Expression*& out, uint8_t code);
   bool maybeVisitAtomicWait(Expression*& out, uint8_t code);
-  bool maybeVisitAtomicWake(Expression*& out, uint8_t code);
+  bool maybeVisitAtomicNotify(Expression*& out, uint8_t code);
   bool maybeVisitConst(Expression*& out, uint8_t code);
   bool maybeVisitUnary(Expression*& out, uint8_t code);
   bool maybeVisitBinary(Expression*& out, uint8_t code);

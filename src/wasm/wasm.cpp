@@ -33,10 +33,17 @@ const char* Dylink = "dylink";
 const char* Linking = "linking";
 const char* Producers = "producers";
 const char* TargetFeatures = "target_features";
+const char* AtomicsFeature = "atomics";
+const char* BulkMemoryFeature = "bulk-memory";
+const char* ExceptionHandlingFeature = "exception-handling";
+const char* TruncSatFeature = "nontrapping-fptoint";
+const char* SignExtFeature = "sign-ext";
+const char* SIMD128Feature = "simd128";
 }
 }
 
 Name GROW_WASM_MEMORY("__growWasmMemory"),
+     WASM_CALL_CTORS("__wasm_call_ctors"),
      MEMORY_BASE("__memory_base"),
      TABLE_BASE("__table_base"),
      GET_TEMP_RET0("getTempRet0"),
@@ -49,7 +56,7 @@ Name GROW_WASM_MEMORY("__growWasmMemory"),
      RESULT("result"),
      MEMORY("memory"),
      DATA("data"),
-     SEGMENT("segment"),
+     PASSIVE("passive"),
      EXPORT("export"),
      IMPORT("import"),
      TABLE("table"),
@@ -105,7 +112,7 @@ const char* getExpressionName(Expression* curr) {
     case Expression::Id::AtomicCmpxchgId: return "atomic_cmpxchg";
     case Expression::Id::AtomicRMWId: return "atomic_rmw";
     case Expression::Id::AtomicWaitId: return "atomic_wait";
-    case Expression::Id::AtomicWakeId: return "atomic_wake";
+    case Expression::Id::AtomicNotifyId: return "atomic_notify";
     case Expression::Id::SIMDExtractId: return "simd_extract";
     case Expression::Id::SIMDReplaceId: return "simd_replace";
     case Expression::Id::SIMDShuffleId: return "simd_shuffle";
@@ -420,9 +427,9 @@ void AtomicWait::finalize() {
   }
 }
 
-void AtomicWake::finalize() {
+void AtomicNotify::finalize() {
   type = i32;
-  if (ptr->type == unreachable || wakeCount->type == unreachable) {
+  if (ptr->type == unreachable || notifyCount->type == unreachable) {
     type = unreachable;
   }
 }
@@ -856,7 +863,7 @@ FunctionType* Module::addFunctionType(std::unique_ptr<FunctionType> curr) {
   return p;
 }
 
-void Module::addExport(Export* curr) {
+Export* Module::addExport(Export* curr) {
   if (!curr->name.is()) {
     Fatal() << "Module::addExport: empty name";
   }
@@ -865,10 +872,11 @@ void Module::addExport(Export* curr) {
   }
   exports.push_back(std::unique_ptr<Export>(curr));
   exportsMap[curr->name] = curr;
+  return curr;
 }
 
 // TODO(@warchant): refactor all usages to use variant with unique_ptr
-void Module::addFunction(Function* curr) {
+Function* Module::addFunction(Function* curr) {
   if (!curr->name.is()) {
     Fatal() << "Module::addFunction: empty name";
   }
@@ -877,20 +885,22 @@ void Module::addFunction(Function* curr) {
   }
   functions.push_back(std::unique_ptr<Function>(curr));
   functionsMap[curr->name] = curr;
+  return curr;
 }
 
-void Module::addFunction(std::unique_ptr<Function> curr) {
+Function* Module::addFunction(std::unique_ptr<Function> curr) {
   if (!curr->name.is()) {
     Fatal() << "Module::addFunction: empty name";
   }
   if (getFunctionOrNull(curr->name)) {
     Fatal() << "Module::addFunction: " << curr->name << " already exists";
   }
-  functionsMap[curr->name] = curr.get();
+  auto* ret = functionsMap[curr->name] = curr.get();
   functions.push_back(std::move(curr));
+  return ret;
 }
 
-void Module::addGlobal(Global* curr) {
+Global* Module::addGlobal(Global* curr) {
   if (!curr->name.is()) {
     Fatal() << "Module::addGlobal: empty name";
   }
@@ -899,6 +909,7 @@ void Module::addGlobal(Global* curr) {
   }
   globals.push_back(std::unique_ptr<Global>(curr));
   globalsMap[curr->name] = curr;
+  return curr;
 }
 
 void Module::addStart(const Name& s) {

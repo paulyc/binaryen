@@ -61,14 +61,25 @@
     "___growWasmMemory"
   ],
   "exports": [
-    "__heap_base",
-    "__data_end",
     "stackSave",
     "stackAlloc",
     "stackRestore",
     "__growWasmMemory"
   ],
+  "namedGlobals": {
+    "__heap_base" : "5250112",
+    "__data_end" : "7232"
+  },
   "invokeFuncs": [
+  ],
+  "features": [
+    "--mvp-features",
+    "--enable-threads",
+    "--enable-mutable-globals",
+    "--enable-nontrapping-float-to-int",
+    "--enable-simd",
+    "--enable-bulk-memory",
+    "--enable-sign-ext"
   ]
 }
 -- END METADATA --

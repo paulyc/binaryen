@@ -40,7 +40,7 @@ public:
   Builder(MixedArena& allocator) : allocator(allocator) {}
   Builder(Module& wasm) : allocator(wasm.allocator) {}
 
-  // make* functions, create nodes
+  // make* functions, other globals
 
   Function* makeFunction(Name name,
                          std::vector<Type>&& params,
@@ -79,6 +79,16 @@ public:
     }
     return func;
   }
+
+  Export* makeExport(Name name, Name value, ExternalKind kind) {
+    auto* export_ = new Export();
+    export_->name = name;
+    export_->value = value;
+    export_->kind = ExternalKind::Function;
+    return export_;
+  }
+
+  // IR nodes
 
   Nop* makeNop() {
     return allocator.alloc<Nop>();
@@ -247,13 +257,13 @@ public:
     wait->finalize();
     return wait;
   }
-  AtomicWake* makeAtomicWake(Expression* ptr, Expression* wakeCount, Address offset) {
-    auto* wake = allocator.alloc<AtomicWake>();
-    wake->offset = offset;
-    wake->ptr = ptr;
-    wake->wakeCount = wakeCount;
-    wake->finalize();
-    return wake;
+  AtomicNotify* makeAtomicNotify(Expression* ptr, Expression* notifyCount, Address offset) {
+    auto* notify = allocator.alloc<AtomicNotify>();
+    notify->offset = offset;
+    notify->ptr = ptr;
+    notify->notifyCount = notifyCount;
+    notify->finalize();
+    return notify;
   }
   Store* makeStore(unsigned bytes, uint32_t offset, unsigned align, Expression *ptr, Expression *value, Type type) {
     auto* ret = allocator.alloc<Store>();

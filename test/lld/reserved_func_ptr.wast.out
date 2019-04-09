@@ -16,7 +16,7 @@
  (global $global$1 i32 (i32.const 66112))
  (global $global$2 i32 (i32.const 568))
  (export "memory" (memory $0))
- (export "__post_instantiate" (func $__wasm_call_ctors))
+ (export "__wasm_call_ctors" (func $__wasm_call_ctors))
  (export "__heap_base" (global $global$1))
  (export "__data_end" (global $global$2))
  (export "main" (func $main))
@@ -161,7 +161,7 @@
   "staticBump": 0,
   "tableSize": 3,
   "initializers": [
-    "__post_instantiate"
+    "__wasm_call_ctors"
   ],
   "declares": [
     "_Z4atoiPKc"
@@ -169,7 +169,7 @@
   "externs": [
   ],
   "implementedFunctions": [
-    "___post_instantiate",
+    "___wasm_call_ctors",
     "_main",
     "_stackSave",
     "_stackAlloc",
@@ -178,10 +178,7 @@
     "_dynCall_viii"
   ],
   "exports": [
-    "memory",
-    "__post_instantiate",
-    "__heap_base",
-    "__data_end",
+    "__wasm_call_ctors",
     "main",
     "stackSave",
     "stackAlloc",
@@ -189,7 +186,20 @@
     "__growWasmMemory",
     "dynCall_viii"
   ],
+  "namedGlobals": {
+    "__heap_base" : "66112",
+    "__data_end" : "568"
+  },
   "invokeFuncs": [
+  ],
+  "features": [
+    "--mvp-features",
+    "--enable-threads",
+    "--enable-mutable-globals",
+    "--enable-nontrapping-float-to-int",
+    "--enable-simd",
+    "--enable-bulk-memory",
+    "--enable-sign-ext"
   ]
 }
 -- END METADATA --

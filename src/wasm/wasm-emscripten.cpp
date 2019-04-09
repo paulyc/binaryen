@@ -36,7 +36,9 @@ cashew::IString EM_JS_PREFIX("__em_js__");
 static Name STACK_SAVE("stackSave"),
             STACK_RESTORE("stackRestore"),
             STACK_ALLOC("stackAlloc"),
-            STACK_INIT("stack$init");
+            STACK_INIT("stack$init"),
+            POST_INSTANTIATE("__post_instantiate"),
+            ASSIGN_GOT_ENTIRES("__assign_got_enties");
 
 void addExportedFunction(Module& wasm, Function* function) {
   wasm.addFunction(function);
@@ -46,16 +48,31 @@ void addExportedFunction(Module& wasm, Function* function) {
   wasm.addExport(export_);
 }
 
+// TODO(sbc): There should probably be a better way to do this.
+bool isExported(Module& wasm, Name name) {
+  for (auto& ex : wasm.exports) {
+    if (ex->value == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
 Global* EmscriptenGlueGenerator::getStackPointerGlobal() {
-  // Assumption: The first non-imported global is global is __stack_pointer
+  // Assumption: The stack pointer is either imported as __stack_pointer or
+  // its the first non-imported and non-exported global.
   // TODO(sbc): Find a better way to discover the stack pointer.  Perhaps the
   // linker could export it by name?
   for (auto& g : wasm.globals) {
-    if (!g->imported()) {
+    if (g->imported()) {
+      if (g->base == "__stack_pointer") {
+        return g.get();
+      }
+    } else if (!isExported(wasm, g->name)) {
       return g.get();
     }
   }
-  Fatal() << "stack pointer global not found";
+  return nullptr;
 }
 
 Expression* EmscriptenGlueGenerator::generateLoadStackPointer() {
@@ -70,6 +87,8 @@ Expression* EmscriptenGlueGenerator::generateLoadStackPointer() {
     );
   }
   Global* stackPointer = getStackPointerGlobal();
+  if (!stackPointer)
+    Fatal() << "stack pointer global not found";
   return builder.makeGetGlobal(stackPointer->name, i32);
 }
 
@@ -85,6 +104,8 @@ Expression* EmscriptenGlueGenerator::generateStoreStackPointer(Expression* value
     );
   }
   Global* stackPointer = getStackPointerGlobal();
+  if (!stackPointer)
+    Fatal() << "stack pointer global not found";
   return builder.makeSetGlobal(stackPointer->name, value);
 }
 
@@ -141,6 +162,126 @@ void EmscriptenGlueGenerator::generateRuntimeFunctions() {
   generateStackSaveFunction();
   generateStackAllocFunction();
   generateStackRestoreFunction();
+}
+
+static Function* ensureFunctionImport(Module* module, Name name, std::string sig) {
+  // Then see if its already imported
+  ImportInfo info(*module);
+  if (Function* f = info.getImportedFunction(ENV, name)) {
+    return f;
+  }
+  // Failing that create a new function import.
+  auto import = new Function;
+  import->name = name;
+  import->module = ENV;
+  import->base = name;
+  auto* functionType = ensureFunctionType(sig, module);
+  import->type = functionType->name;
+  FunctionTypeUtils::fillFunction(import, functionType);
+  module->addFunction(import);
+  return import;
+}
+
+// Convert LLVM PIC ABI to emscripten ABI
+//
+// When generating -fPIC code llvm will generate imports call GOT.mem and
+// GOT.func in order to access the addresses of external global data and
+// functions.
+//
+// However emscripten uses a different ABI where function and data addresses
+// are available at runtime via special `g$foo` and `fp$bar` function calls.
+//
+// Here we internalize all such wasm globals and generte code that sets their
+// value based on the result of call `g$foo` and `fp$bar` functions at runtime.
+Function* EmscriptenGlueGenerator::generateAssignGOTEntriesFunction() {
+  std::vector<Global*> got_entries_func;
+  std::vector<Global*> got_entries_mem;
+  for (auto& g : wasm.globals) {
+    if (!g->imported()) {
+      continue;
+    }
+    if (g->module == "GOT.func") {
+      got_entries_func.push_back(g.get());
+    } else if (g->module == "GOT.mem") {
+      got_entries_mem.push_back(g.get());
+    } else {
+      continue;
+    }
+    // Make this an internal, non-imported, global.
+    g->module.clear();
+    g->init = Builder(wasm).makeConst(Literal(0));
+  }
+
+  if (!got_entries_func.size() && !got_entries_mem.size()) {
+    return nullptr;
+  }
+
+  Function* assign_func =
+    builder.makeFunction(ASSIGN_GOT_ENTIRES, std::vector<NameType>{}, none, {});
+  Block* block = builder.makeBlock();
+  assign_func->body = block;
+
+  for (Global* g : got_entries_mem) {
+    Name getter(std::string("g$") + g->base.c_str());
+    ensureFunctionImport(&wasm, getter, "i");
+    Expression* call = builder.makeCall(getter, {}, i32);
+    SetGlobal* set_global = builder.makeSetGlobal(g->name, call);
+    block->list.push_back(set_global);
+  }
+
+  for (Global* g : got_entries_func) {
+    Name getter(std::string("fp$") + g->base.c_str());
+    if (auto* f = wasm.getFunctionOrNull(g->base)) {
+      getter.set((getter.c_str() + std::string("$") + getSig(f)).c_str(), false);
+    }
+    ensureFunctionImport(&wasm, getter, "i");
+    Expression* call = builder.makeCall(getter, {}, i32);
+    SetGlobal* set_global = builder.makeSetGlobal(g->name, call);
+    block->list.push_back(set_global);
+  }
+
+  wasm.addFunction(assign_func);
+  return assign_func;
+}
+
+// For emscripten SIDE_MODULE we generate a single exported function called
+// __post_instantiate which calls two functions:
+//
+// - __assign_got_enties
+// - __wasm_call_ctors
+//
+// The former is function we generate here which calls imported g$XXX functions
+// order to assign values to any globals imported from GOT.func or GOT.mem.
+// These globals hold address of functions and globals respectively.
+//
+// The later is the constructor function generaed by lld which performs any
+// fixups on the memory section and calls static constructors.
+void EmscriptenGlueGenerator::generatePostInstantiateFunction() {
+  Builder builder(wasm);
+  Function* post_instantiate =
+    builder.makeFunction(POST_INSTANTIATE, std::vector<NameType>{}, none, {});
+  wasm.addFunction(post_instantiate);
+
+  if (Function* F = generateAssignGOTEntriesFunction()) {
+    // call __assign_got_enties from post_instantiate
+    Expression* call = builder.makeCall(F->name, {}, none);
+    post_instantiate->body = builder.blockify(post_instantiate->body, call);
+  }
+
+  // The names of standard imports/exports used by lld doesn't quite match that
+  // expected by emscripten.
+  // TODO(sbc): Unify these
+  if (auto* e = wasm.getExportOrNull(WASM_CALL_CTORS)) {
+    Expression* call = builder.makeCall(e->value, {}, none);
+    post_instantiate->body = builder.blockify(post_instantiate->body, call);
+    wasm.removeExport(WASM_CALL_CTORS);
+  }
+
+  auto* ex = new Export();
+  ex->value = post_instantiate->name;
+  ex->name = POST_INSTANTIATE;
+  ex->kind = ExternalKind::Function;
+  wasm.addExport(ex);
 }
 
 Function* EmscriptenGlueGenerator::generateMemoryGrowthFunction() {
@@ -215,24 +356,6 @@ void EmscriptenGlueGenerator::generateDynCallThunks() {
   }
 }
 
-static Function* ensureFunctionImport(Module* module, Name name, std::string sig) {
-  // Then see if its already imported
-  ImportInfo info(*module);
-  if (Function* f = info.getImportedFunction(ENV, name)) {
-    return f;
-  }
-  // Failing that create a new function import.
-  auto import = new Function;
-  import->name = name;
-  import->module = ENV;
-  import->base = name;
-  auto* functionType = ensureFunctionType(sig, module);
-  import->type = functionType->name;
-  FunctionTypeUtils::fillFunction(import, functionType);
-  module->addFunction(import);
-  return import;
-}
-
 struct RemoveStackPointer : public PostWalker<RemoveStackPointer> {
   RemoveStackPointer(Global* stackPointer) : stackPointer(stackPointer) {}
 
@@ -262,6 +385,8 @@ private:
 
 void EmscriptenGlueGenerator::replaceStackPointerGlobal() {
   Global* stackPointer = getStackPointerGlobal();
+  if (!stackPointer)
+    return;
 
   // Replace all uses of stack pointer global
   RemoveStackPointer walker(stackPointer);
@@ -685,7 +810,8 @@ void printSet(std::ostream& o, C& c) {
 }
 
 std::string EmscriptenGlueGenerator::generateEmscriptenMetadata(
-    Address staticBump, std::vector<Name> const& initializerFunctions) {
+    Address staticBump, std::vector<Name> const& initializerFunctions,
+    FeatureSet features) {
   bool commaFirst;
   auto nextElement = [&commaFirst]() {
     if (commaFirst) {
@@ -792,9 +918,24 @@ std::string EmscriptenGlueGenerator::generateEmscriptenMetadata(
     meta << "  \"exports\": [";
     commaFirst = true;
     for (const auto& ex : wasm.exports) {
-      meta << nextElement() << '"' << ex->name.str << '"';
+      if (ex->kind == ExternalKind::Function) {
+        meta << nextElement() << '"' << ex->name.str << '"';
+      }
     }
     meta << "\n  ],\n";
+
+    meta << "  \"namedGlobals\": {";
+    commaFirst = true;
+    for (const auto& ex : wasm.exports) {
+      if (ex->kind == ExternalKind::Global) {
+        const Global* g = wasm.getGlobal(ex->value);
+        assert(g->type == i32);
+        Const* init = g->init->cast<Const>();
+        uint32_t addr = init->value.geti32();
+        meta << nextElement() << '"' << ex->name.str << "\" : \"" << addr << '"';
+      }
+    }
+    meta << "\n  },\n";
   }
 
   meta << "  \"invokeFuncs\": [";
@@ -806,7 +947,16 @@ std::string EmscriptenGlueGenerator::generateEmscriptenMetadata(
       }
     }
   });
+  meta << "\n  ],\n";
+
+  meta << "  \"features\": [";
+  commaFirst = true;
+  meta << nextElement() << "\"--mvp-features\"";
+  features.iterFeatures([&](FeatureSet::Feature f) {
+    meta << nextElement() << "\"--enable-" << FeatureSet::toString(f) << '"';
+  });
   meta << "\n  ]\n";
+
   meta << "}\n";
 
   return meta.str();
@@ -815,6 +965,7 @@ std::string EmscriptenGlueGenerator::generateEmscriptenMetadata(
 void EmscriptenGlueGenerator::separateDataSegments(Output* outfile, Address base) {
   size_t lastEnd = 0;
   for (Memory::Segment& seg : wasm.memory.segments) {
+    assert(!seg.isPassive && "separating passive segments not implemented");
     size_t offset = seg.offset->cast<Const>()->value.geti32();
     offset -= base;
     size_t fill = offset - lastEnd;

@@ -261,7 +261,7 @@ BinaryenExpressionId BinaryenUnreachableId(void) { return Expression::Id::Unreac
 BinaryenExpressionId BinaryenAtomicCmpxchgId(void) { return Expression::Id::AtomicCmpxchgId; }
 BinaryenExpressionId BinaryenAtomicRMWId(void) { return Expression::Id::AtomicRMWId; }
 BinaryenExpressionId BinaryenAtomicWaitId(void) { return Expression::Id::AtomicWaitId; }
-BinaryenExpressionId BinaryenAtomicWakeId(void) { return Expression::Id::AtomicWakeId; }
+BinaryenExpressionId BinaryenAtomicNotifyId(void) { return Expression::Id::AtomicNotifyId; }
 BinaryenExpressionId BinaryenSIMDExtractId(void) { return Expression::Id::SIMDExtractId; }
 BinaryenExpressionId BinaryenSIMDReplaceId(void) { return Expression::Id::SIMDReplaceId; }
 BinaryenExpressionId BinaryenSIMDShuffleId(void) { return Expression::Id::SIMDShuffleId; }
@@ -1022,11 +1022,11 @@ BinaryenExpressionRef BinaryenAtomicWait(BinaryenModuleRef module, BinaryenExpre
 
   return static_cast<Expression*>(ret);
 }
-BinaryenExpressionRef BinaryenAtomicWake(BinaryenModuleRef module, BinaryenExpressionRef ptr, BinaryenExpressionRef wakeCount) {
-  auto* ret = Builder(*((Module*)module)).makeAtomicWake((Expression*)ptr, (Expression*)wakeCount, 0);
+BinaryenExpressionRef BinaryenAtomicNotify(BinaryenModuleRef module, BinaryenExpressionRef ptr, BinaryenExpressionRef notifyCount) {
+  auto* ret = Builder(*((Module*)module)).makeAtomicNotify((Expression*)ptr, (Expression*)notifyCount, 0);
 
   if (tracing) {
-    traceExpression(ret, "BinaryenAtomicWake", ptr, wakeCount);
+    traceExpression(ret, "BinaryenAtomicNotify", ptr, notifyCount);
   }
 
   return static_cast<Expression*>(ret);
@@ -1849,24 +1849,24 @@ BinaryenType BinaryenAtomicWaitGetExpectedType(BinaryenExpressionRef expr) {
   assert(expression->is<AtomicWait>());
   return static_cast<AtomicWait*>(expression)->expectedType;
 }
-// AtomicWake
-BinaryenExpressionRef BinaryenAtomicWakeGetPtr(BinaryenExpressionRef expr) {
+// AtomicNotify
+BinaryenExpressionRef BinaryenAtomicNotifyGetPtr(BinaryenExpressionRef expr) {
   if (tracing) {
-    std::cout << "  BinaryenAtomicWakeGetPtr(expressions[" << expressions[expr] << "]);\n";
+    std::cout << "  BinaryenAtomicNotifyGetPtr(expressions[" << expressions[expr] << "]);\n";
   }
 
   auto* expression = (Expression*)expr;
-  assert(expression->is<AtomicWake>());
-  return static_cast<AtomicWake*>(expression)->ptr;
+  assert(expression->is<AtomicNotify>());
+  return static_cast<AtomicNotify*>(expression)->ptr;
 }
-BinaryenExpressionRef BinaryenAtomicWakeGetWakeCount(BinaryenExpressionRef expr) {
+BinaryenExpressionRef BinaryenAtomicNotifyGetNotifyCount(BinaryenExpressionRef expr) {
   if (tracing) {
-    std::cout << "  BinaryenAtomicWakeGetWakeCount(expressions[" << expressions[expr] << "]);\n";
+    std::cout << "  BinaryenAtomicNotifyGetNotifyCount(expressions[" << expressions[expr] << "]);\n";
   }
 
   auto* expression = (Expression*)expr;
-  assert(expression->is<AtomicWake>());
-  return static_cast<AtomicWake*>(expression)->wakeCount;
+  assert(expression->is<AtomicNotify>());
+  return static_cast<AtomicNotify*>(expression)->notifyCount;
 }
 // SIMDExtract
 BinaryenOp BinaryenSIMDExtractGetOp(BinaryenExpressionRef expr) {
@@ -2360,7 +2360,7 @@ void BinaryenSetFunctionTable(BinaryenModuleRef module, BinaryenIndex initial, B
 
 // Memory. One per module
 
-void BinaryenSetMemory(BinaryenModuleRef module, BinaryenIndex initial, BinaryenIndex maximum, const char* exportName, const char** segments, BinaryenExpressionRef* segmentOffsets, BinaryenIndex* segmentSizes, BinaryenIndex numSegments, uint8_t shared) {
+void BinaryenSetMemory(BinaryenModuleRef module, BinaryenIndex initial, BinaryenIndex maximum, const char* exportName, const char** segments, int8_t* segmentPassive, BinaryenExpressionRef* segmentOffsets, BinaryenIndex* segmentSizes, BinaryenIndex numSegments, uint8_t shared) {
   if (tracing) {
     std::cout << "  {\n";
     for (BinaryenIndex i = 0; i < numSegments; i++) {
@@ -2375,6 +2375,13 @@ void BinaryenSetMemory(BinaryenModuleRef module, BinaryenIndex initial, Binaryen
     for (BinaryenIndex i = 0; i < numSegments; i++) {
       if (i > 0) std::cout << ", ";
       std::cout << "segment" << i;
+    }
+    if (numSegments == 0) std::cout << "0"; // ensure the array is not empty, otherwise a compiler error on VS
+    std::cout << " };\n";
+    std::cout << "    int8_t segmentPassive[] = { ";
+    for (BinaryenIndex i = 0; i < numSegments; i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << int(segmentPassive[i]);
     }
     if (numSegments == 0) std::cout << "0"; // ensure the array is not empty, otherwise a compiler error on VS
     std::cout << " };\n";
@@ -2394,7 +2401,7 @@ void BinaryenSetMemory(BinaryenModuleRef module, BinaryenIndex initial, Binaryen
     std::cout << " };\n";
     std::cout << "    BinaryenSetMemory(the_module, " << initial << ", " << maximum << ", ";
     traceNameOrNULL(exportName);
-    std::cout << ", segments, segmentOffsets, segmentSizes, " << numSegments << ", " << int(shared) << ");\n";
+    std::cout << ", segments, segmentPassive, segmentOffsets, segmentSizes, " << numSegments << ", " << int(shared) << ");\n";
     std::cout << "  }\n";
   }
 
@@ -2411,7 +2418,7 @@ void BinaryenSetMemory(BinaryenModuleRef module, BinaryenIndex initial, Binaryen
     wasm->addExport(memoryExport.release());
   }
   for (BinaryenIndex i = 0; i < numSegments; i++) {
-    wasm->memory.segments.emplace_back((Expression*)segmentOffsets[i], segments[i], segmentSizes[i]);
+    wasm->memory.segments.emplace_back(segmentPassive[i], (Expression*)segmentOffsets[i], segments[i], segmentSizes[i]);
   }
 }
 

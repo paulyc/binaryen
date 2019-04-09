@@ -98,6 +98,7 @@ echo "building shared bitcode"
   $BINARYEN_SRC/passes/ConstHoisting.cpp \
   $BINARYEN_SRC/passes/DataFlowOpts.cpp \
   $BINARYEN_SRC/passes/DeadCodeElimination.cpp \
+  $BINARYEN_SRC/passes/Directize.cpp \
   $BINARYEN_SRC/passes/DuplicateFunctionElimination.cpp \
   $BINARYEN_SRC/passes/ExtractFunction.cpp \
   $BINARYEN_SRC/passes/Flatten.cpp \
@@ -107,6 +108,7 @@ echo "building shared bitcode"
   $BINARYEN_SRC/passes/InstrumentLocals.cpp \
   $BINARYEN_SRC/passes/InstrumentMemory.cpp \
   $BINARYEN_SRC/passes/LegalizeJSInterface.cpp \
+  $BINARYEN_SRC/passes/LimitSegments.cpp \
   $BINARYEN_SRC/passes/LocalCSE.cpp \
   $BINARYEN_SRC/passes/LogExecution.cpp \
   $BINARYEN_SRC/passes/LoopInvariantCodeMotion.cpp \
@@ -204,7 +206,7 @@ export_function "_BinaryenUnreachableId"
 export_function "_BinaryenAtomicCmpxchgId"
 export_function "_BinaryenAtomicRMWId"
 export_function "_BinaryenAtomicWaitId"
-export_function "_BinaryenAtomicWakeId"
+export_function "_BinaryenAtomicNotifyId"
 export_function "_BinaryenSIMDExtractId"
 export_function "_BinaryenSIMDReplaceId"
 export_function "_BinaryenSIMDShuffleId"
@@ -540,7 +542,7 @@ export_function "_BinaryenAtomicStore"
 export_function "_BinaryenAtomicRMW"
 export_function "_BinaryenAtomicCmpxchg"
 export_function "_BinaryenAtomicWait"
-export_function "_BinaryenAtomicWake"
+export_function "_BinaryenAtomicNotify"
 export_function "_BinaryenSIMDExtract"
 export_function "_BinaryenSIMDReplace"
 export_function "_BinaryenSIMDShuffle"
@@ -677,9 +679,9 @@ export_function "_BinaryenAtomicWaitGetExpected"
 export_function "_BinaryenAtomicWaitGetTimeout"
 export_function "_BinaryenAtomicWaitGetExpectedType"
 
-# 'AtomicWake' expression operations
-export_function "_BinaryenAtomicWakeGetPtr"
-export_function "_BinaryenAtomicWakeGetWakeCount"
+# 'AtomicNotify' expression operations
+export_function "_BinaryenAtomicNotifyGetPtr"
+export_function "_BinaryenAtomicNotifyGetNotifyCount"
 
 # 'SIMDExtract' expression operations
 export_function "_BinaryenSIMDExtractGetOp"

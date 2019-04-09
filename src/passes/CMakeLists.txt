@@ -12,6 +12,7 @@ SET(passes_SOURCES
   DataFlowOpts.cpp
   DeadArgumentElimination.cpp
   DeadCodeElimination.cpp
+  Directize.cpp
   DuplicateFunctionElimination.cpp
   ExtractFunction.cpp
   Flatten.cpp
@@ -21,6 +22,7 @@ SET(passes_SOURCES
   InstrumentLocals.cpp
   InstrumentMemory.cpp
   LegalizeJSInterface.cpp
+  LimitSegments.cpp
   LocalCSE.cpp
   LogExecution.cpp
   LoopInvariantCodeMotion.cpp

@@ -22,6 +22,7 @@
 namespace wasm {
 
 extern Name GROW_WASM_MEMORY,
+            WASM_CALL_CTORS,
             MEMORY_BASE,
             TABLE_BASE,
             GET_TEMP_RET0,
@@ -34,7 +35,7 @@ extern Name GROW_WASM_MEMORY,
             RESULT,
             MEMORY,
             DATA,
-            SEGMENT,
+            PASSIVE,
             EXPORT,
             IMPORT,
             TABLE,

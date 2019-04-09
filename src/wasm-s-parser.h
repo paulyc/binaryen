@@ -191,7 +191,7 @@ private:
   Expression* makeAtomicRMW(Element& s, Type type, uint8_t bytes, const char* extra);
   Expression* makeAtomicCmpxchg(Element& s, Type type, uint8_t bytes, const char* extra);
   Expression* makeAtomicWait(Element& s, Type type);
-  Expression* makeAtomicWake(Element& s);
+  Expression* makeAtomicNotify(Element& s);
   Expression* makeSIMDExtract(Element& s, SIMDExtractOp op, size_t lanes);
   Expression* makeSIMDReplace(Element& s, SIMDReplaceOp op, size_t lanes);
   Expression* makeSIMDShuffle(Element& s);
@@ -224,7 +224,7 @@ private:
   void stringToBinary(const char* input, size_t size, std::vector<char>& data);
   void parseMemory(Element& s, bool preParseImport = false);
   void parseData(Element& s);
-  void parseInnerData(Element& s, Index i = 1, Expression* offset = nullptr);
+  void parseInnerData(Element& s, Index i, Expression* offset, bool isPassive);
   void parseExport(Element& s);
   void parseImport(Element& s);
   void parseGlobal(Element& s, bool preParseImport = false);

@@ -17,10 +17,10 @@
 #include <algorithm>
 #include <fstream>
 
-#include "support/bits.h"
 #include "wasm-binary.h"
 #include "wasm-stack.h"
 #include "ir/module-utils.h"
+#include "support/bits.h"
 
 namespace wasm {
 
@@ -311,94 +311,26 @@ void WasmBinaryWriter::writeExports() {
   finishSection(start);
 }
 
-static bool isEmpty(Memory::Segment& segment) {
-  return segment.data.size() == 0;
-}
-
-static bool isConstantOffset(Memory::Segment& segment) {
-  return segment.offset->is<Const>();
-}
-
 void WasmBinaryWriter::writeDataSegments() {
   if (wasm->memory.segments.size() == 0) return;
-  Index numConstant = 0,
-        numDynamic = 0;
-  for (auto& segment : wasm->memory.segments) {
-    if (!isEmpty(segment)) {
-      if (isConstantOffset(segment)) {
-        numConstant++;
-      } else {
-        numDynamic++;
-      }
-    }
-  }
-  // check if we have too many dynamic data segments, which we can do nothing about
-  auto num = numConstant + numDynamic;
-  if (numDynamic + 1 >= WebLimitations::MaxDataSegments) {
-    std::cerr << "too many non-constant-offset data segments, wasm VMs may not accept this binary" << std::endl;
-  }
-  // we'll merge constant segments if we must
-  if (numConstant + numDynamic >= WebLimitations::MaxDataSegments) {
-    numConstant = WebLimitations::MaxDataSegments - numDynamic - 1;
-    num = numConstant + numDynamic;
-    assert(num == WebLimitations::MaxDataSegments - 1);
+  if (wasm->memory.segments.size() > WebLimitations::MaxDataSegments) {
+    std::cerr << "Some VMs may not accept this binary because it has a large "
+              << "number of data segments. Run the limit-segments pass to "
+              << "merge segments." << std::endl;
   }
   auto start = startSection(BinaryConsts::Section::Data);
-  o << U32LEB(num);
-  // first, emit all non-constant-offset segments; then emit the constants,
-  // which we may merge if forced to
-  Index emitted = 0;
-  auto emit = [&](Memory::Segment& segment) {
-    o << U32LEB(0); // Linear memory 0 in the MVP
-    writeExpression(segment.offset);
-    o << int8_t(BinaryConsts::End);
-    writeInlineBuffer(&segment.data[0], segment.data.size());
-    emitted++;
-  };
-  auto& segments = wasm->memory.segments;
-  for (auto& segment : segments) {
-    if (isEmpty(segment)) continue;
-    if (isConstantOffset(segment)) continue;
-    emit(segment);
-  }
-  // from here on, we concern ourselves with non-empty constant-offset
-  // segments, the ones which we may need to merge
-  auto isRelevant = [](Memory::Segment& segment) {
-    return !isEmpty(segment) && isConstantOffset(segment);
-  };
-  for (Index i = 0; i < segments.size(); i++) {
-    auto& segment = segments[i];
-    if (!isRelevant(segment)) continue;
-    if (emitted + 2 < WebLimitations::MaxDataSegments) {
-      emit(segment);
-    } else {
-      // we can emit only one more segment! merge everything into one
-      // start the combined segment at the bottom of them all
-      auto start = segment.offset->cast<Const>()->value.getInteger();
-      for (Index j = i + 1; j < segments.size(); j++) {
-        auto& segment = segments[j];
-        if (!isRelevant(segment)) continue;
-        auto offset = segment.offset->cast<Const>()->value.getInteger();
-        start = std::min(start, offset);
-      }
-      // create the segment and add in all the data
-      Const c;
-      c.value = Literal(int32_t(start));
-      c.type = i32;
-      Memory::Segment combined(&c);
-      for (Index j = i; j < segments.size(); j++) {
-        auto& segment = segments[j];
-        if (!isRelevant(segment)) continue;
-        auto offset = segment.offset->cast<Const>()->value.getInteger();
-        auto needed = offset + segment.data.size() - start;
-        if (combined.data.size() < needed) {
-          combined.data.resize(needed);
-        }
-        std::copy(segment.data.begin(), segment.data.end(), combined.data.begin() + offset - start);
-      }
-      emit(combined);
-      break;
+  o << U32LEB(wasm->memory.segments.size());
+  for (auto& segment : wasm->memory.segments) {
+    uint32_t flags = 0;
+    if (segment.isPassive) {
+      flags |= BinaryConsts::IsPassive;
     }
+    o << U32LEB(flags);
+    if (!segment.isPassive) {
+      writeExpression(segment.offset);
+      o << int8_t(BinaryConsts::End);
+    }
+    writeInlineBuffer(segment.data.data(), segment.data.size());
   }
   finishSection(start);
 }
@@ -860,14 +792,6 @@ Type WasmBinaryBuilder::getConcreteType() {
     throw ParseException("non-concrete type when one expected");
   }
   return type;
-}
-
-Name WasmBinaryBuilder::getString() {
-  if (debug) std::cerr << "<==" << std::endl;
-  size_t offset = getInt32();
-  Name ret = cashew::IString((&input[0]) + offset, false);
-  if (debug) std::cerr << "getString: " << ret << " ==>" << std::endl;
-  return ret;
 }
 
 Name WasmBinaryBuilder::getInlineString() {
@@ -1544,20 +1468,25 @@ void WasmBinaryBuilder::readDataSegments() {
   if (debug) std::cerr << "== readDataSegments" << std::endl;
   auto num = getU32LEB();
   for (size_t i = 0; i < num; i++) {
-    auto memoryIndex = getU32LEB();
-    WASM_UNUSED(memoryIndex);
-    if (memoryIndex != 0) {
-      throwError("bad memory index, must be 0");
-    }
     Memory::Segment curr;
-    auto offset = readExpression();
-    auto size = getU32LEB();
-    std::vector<char> buffer;
-    buffer.resize(size);
-    for (size_t j = 0; j < size; j++) {
-      buffer[j] = char(getInt8());
+    uint32_t flags = getU32LEB();
+    if (flags > 2) {
+      throwError("bad segment flags, must be 0, 1, or 2, not " +
+                 std::to_string(flags));
     }
-    wasm.memory.segments.emplace_back(offset, (const char*)&buffer[0], size);
+    curr.isPassive = flags & BinaryConsts::IsPassive;
+    if (flags & BinaryConsts::HasMemIndex) {
+      curr.index = getU32LEB();
+    }
+    if (!curr.isPassive) {
+      curr.offset = readExpression();
+    }
+    auto size = getU32LEB();
+    curr.data.resize(size);
+    for (size_t j = 0; j < size; j++) {
+      curr.data[j] = char(getInt8());
+    }
+    wasm.memory.segments.push_back(curr);
   }
 }
 
@@ -1711,7 +1640,7 @@ BinaryConsts::ASTNodes WasmBinaryBuilder::readExpression(Expression*& curr) {
       if (maybeVisitAtomicRMW(curr, code)) break;
       if (maybeVisitAtomicCmpxchg(curr, code)) break;
       if (maybeVisitAtomicWait(curr, code)) break;
-      if (maybeVisitAtomicWake(curr, code)) break;
+      if (maybeVisitAtomicNotify(curr, code)) break;
       throwError("invalid code after atomic prefix: " + std::to_string(code));
       break;
     }
@@ -2223,17 +2152,17 @@ bool WasmBinaryBuilder::maybeVisitAtomicWait(Expression*& out, uint8_t code) {
   return true;
 }
 
-bool WasmBinaryBuilder::maybeVisitAtomicWake(Expression*& out, uint8_t code) {
-  if (code != BinaryConsts::AtomicWake) return false;
-  auto* curr = allocator.alloc<AtomicWake>();
-  if (debug) std::cerr << "zz node: AtomicWake" << std::endl;
+bool WasmBinaryBuilder::maybeVisitAtomicNotify(Expression*& out, uint8_t code) {
+  if (code != BinaryConsts::AtomicNotify) return false;
+  auto* curr = allocator.alloc<AtomicNotify>();
+  if (debug) std::cerr << "zz node: AtomicNotify" << std::endl;
 
   curr->type = i32;
-  curr->wakeCount = popNonVoidExpression();
+  curr->notifyCount = popNonVoidExpression();
   curr->ptr = popNonVoidExpression();
   Address readAlign;
   readMemoryAccess(readAlign, curr->offset);
-  if (readAlign != getTypeSize(curr->type)) throwError("Align of AtomicWake must match size");
+  if (readAlign != getTypeSize(curr->type)) throwError("Align of AtomicNotify must match size");
   curr->finalize();
   out = curr;
   return true;
